@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  nanoclaw-agent:
+    build:
+      context: ./container
+      dockerfile: Dockerfile
+      args:
+        CLAUDE_CODE_VERSION: "2.1.154"
+        AGENT_BROWSER_VERSION: "latest"
+        VERCEL_VERSION: "52.2.1"
+        BUN_VERSION: "1.3.12"
+        INSTALL_CJK_FONTS: "false"
+    container_name: nanoclaw-agent-local
+    image: nanoclaw:latest
+
+    # Environment configuration
+    environment:
+      # Credential Management - OneCLI Integration
+      ONECLI_MODE: "synthetic"
+      ONECLI_WORKSPACE: "/workspace"
+      ONECLI_CONFIG_PATH: "/etc/onecli"
+
+      # API Keys (synthetic/fake internally)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-sk-synthetic-local-dev}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-sk-synthetic-local-dev}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-synthetic-local-dev}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-ghp_synthetic_local_dev}
+
+      # Service Endpoints
+      CLAUDE_API_BASE: ${CLAUDE_API_BASE:-https://api.anthropic.com}
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DEBUG: ${DEBUG:-false}
+
+      # Browser/Agent Configuration
+      AGENT_BROWSER_EXECUTABLE_PATH: /usr/bin/chromium
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+    # Volume mounts for isolation and persistence
+    volumes:
+      # Read-only source code mount
+      - ./src:/app/src:ro
+      - ./agent-runner:/app/agent-runner:ro
+
+      # Workspace for agent artifacts and data
+      - nanoclaw-workspace:/workspace
+
+      # OneCLI configuration (read-only from host perspective)
+      - ./config-onecli:/etc/onecli:ro
+
+      # Persistent data directory
+      - nanoclaw-data:/data
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+    # Network isolation
+    networks:
+      - nanoclaw-network
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"] || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  nanoclaw-network:
+    driver: bridge
+
+volumes:
+  nanoclaw-workspace:
+    driver: local
+  nanoclaw-data:
+    driver: local

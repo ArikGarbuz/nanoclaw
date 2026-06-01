@@ -1,0 +1,92 @@
+# OneCLI Configuration for NanoClaw Layer 1
+# Manages credential routing and synthetic key mapping for Docker isolation
+
+version: "1.0"
+
+# Mode configuration
+mode: synthetic
+
+# Credential mappings - Define how synthetic keys route to real credentials
+credentials:
+  # Anthropic API - Claude SDK
+  anthropic:
+    synthetic_key: "sk-synthetic-local-dev"
+    vault_path: "anthropic/api_key"
+    fallback_env: "ANTHROPIC_API_KEY"
+    required: true
+    description: "Anthropic API key for Claude models"
+
+  # OpenAI API - Third-party LLM
+  openai:
+    synthetic_key: "sk-synthetic-local-dev"
+    vault_path: "openai/api_key"
+    fallback_env: "OPENAI_API_KEY"
+    required: false
+    description: "OpenAI API key for GPT models"
+
+  # Google API - Google services
+  google:
+    synthetic_key: "synthetic-local-dev"
+    vault_path: "google/api_key"
+    fallback_env: "GOOGLE_API_KEY"
+    required: false
+    description: "Google API key for services like Maps, Sheets"
+
+  # GitHub Token - Repository access
+  github:
+    synthetic_key: "ghp_synthetic_local_dev"
+    vault_path: "github/personal_access_token"
+    fallback_env: "GITHUB_TOKEN"
+    required: false
+    description: "GitHub Personal Access Token for repository operations"
+
+# Workspace configuration
+workspace:
+  root_path: "/workspace"
+  data_path: "/data"
+  cache_path: "/workspace/.cache"
+  logs_path: "/workspace/logs"
+
+# Logging configuration
+logging:
+  level: "info"
+  format: "json"
+  output: "stdout"
+
+# Security settings
+security:
+  # Prevent credential logging
+  mask_secrets: true
+
+  # Enable audit logging for credential access
+  audit_logging: true
+
+  # Credential TTL (Time To Live) - in seconds
+  credential_ttl: 3600
+
+  # Rate limiting for credential requests
+  rate_limit:
+    enabled: true
+    max_requests_per_minute: 1000
+
+# Container isolation settings
+container:
+  # Prevent credentials from being passed to subprocesses
+  isolated_env: true
+
+  # Block credential exposure in logs
+  sanitize_logs: true
+
+  # Enable seccomp security profile
+  seccomp_enabled: true
+
+# Development settings
+development:
+  # Use synthetic keys in dev mode
+  use_synthetic_keys: true
+
+  # Enable detailed debug output
+  debug_mode: false
+
+  # Allow unauthenticated API calls (for testing)
+  allow_unauthenticated: false
