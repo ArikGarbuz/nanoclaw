@@ -27,6 +27,9 @@ services:
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-synthetic-local-dev}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-ghp_synthetic_local_dev}
 
+      # Telegram Bot Token (Layer 2 Integration)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
       # Service Endpoints
       CLAUDE_API_BASE: ${CLAUDE_API_BASE:-https://api.anthropic.com}
 

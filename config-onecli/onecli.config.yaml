@@ -40,6 +40,14 @@ credentials:
     required: false
     description: "GitHub Personal Access Token for repository operations"
 
+  # Telegram Bot Token - Layer 2 Integration
+  telegram:
+    synthetic_key: "tg_synthetic_local_dev"
+    vault_path: "telegram/bot_token"
+    fallback_env: "TELEGRAM_BOT_TOKEN"
+    required: false
+    description: "Telegram Bot Token for bot connection (@BotFather)"
+
 # Workspace configuration
 workspace:
   root_path: "/workspace"
