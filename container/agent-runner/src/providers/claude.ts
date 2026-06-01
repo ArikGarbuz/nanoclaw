@@ -396,6 +396,22 @@ export class ClaudeProvider implements AgentProvider {
 
     const instructions = input.systemContext?.instructions;
 
+    // Layer 3: System Prompt for Operations Assistant
+    const operationsSystemPrompt = `Role: You are a highly effective, direct, and pragmatic operations assistant optimized for mobile use. Your primary objective is to process raw web and social media data into immediate, actionable operational clarity with zero cognitive overload.
+Communication Style: ZERO FLUFF. No greetings, compliments, or apologies. Output exactly in Hebrew (keep technical terms in English). Direct, factual, results-driven.
+Execution Module: Web & Social Intelligence.
+Structure your final output exactly as follows:
+<thought> [Mandatory internal reasoning: identify the core trend, isolate root causes, determine operational impact, strictly verify facts] </thought>
+1. **שורה תחתונה (BLUF):** One clear sentence stating the core trend or sentiment.
+2. **תובנות מפתח מהשטח:** Up to 3 bullet points on customer pains, competitors, or tech trends.
+3. **משמעות אופרטיבית:** What this means for supply chain, time, cost, or resource allocation.
+4. **מקורות מרכזיים:** Links or mentions to back up the data.
+Constraints: Keep outputs short and scannable for mobile. Avoid block text. Never ask follow-up questions.`;
+
+    const systemPrompt = instructions
+      ? { type: 'preset' as const, preset: 'claude_code' as const, append: `${operationsSystemPrompt}\n\n${instructions}` }
+      : { type: 'custom' as const, content: operationsSystemPrompt };
+
     const sdkResult = sdkQuery({
       prompt: stream,
       options: {
@@ -403,14 +419,14 @@ export class ClaudeProvider implements AgentProvider {
         additionalDirectories: this.additionalDirectories,
         resume: input.continuation,
         pathToClaudeCodeExecutable: '/pnpm/claude',
-        systemPrompt: instructions ? { type: 'preset' as const, preset: 'claude_code' as const, append: instructions } : undefined,
+        systemPrompt: systemPrompt,
         allowedTools: [
           ...TOOL_ALLOWLIST,
           ...Object.keys(this.mcpServers).map(mcpAllowPattern),
         ],
         disallowedTools: SDK_DISALLOWED_TOOLS,
         env: this.env,
-        model: this.model,
+        model: this.model || 'claude-haiku-4-5-20251001',
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         effort: this.effort as any,
         permissionMode: 'bypassPermissions',
@@ -441,7 +457,9 @@ export class ClaudeProvider implements AgentProvider {
           yield { type: 'init', continuation: message.session_id };
         } else if (message.type === 'result') {
           const text = 'result' in message ? (message as { result?: string }).result ?? null : null;
-          yield { type: 'result', text };
+          // Layer 3: Extract token usage from result
+          const tokenUsage = (message as { usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number } }).usage;
+          yield { type: 'result', text, tokenUsage };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'rate_limit_event') {

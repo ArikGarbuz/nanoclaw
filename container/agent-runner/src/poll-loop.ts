@@ -485,6 +485,14 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
       break;
     case 'result':
       log(`Result: ${event.text ? event.text.slice(0, 200) : '(empty)'}`);
+      // Layer 3: Token Observability
+      if ('tokenUsage' in event && event.tokenUsage) {
+        const usage = event.tokenUsage as { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number };
+        const promptTokens = (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0);
+        const completionTokens = usage.output_tokens || 0;
+        const cacheCreation = usage.cache_creation_input_tokens || 0;
+        log(`[TOKEN-USAGE] Prompt: ${promptTokens}, Completion: ${completionTokens}${cacheCreation > 0 ? `, Cache-Creation: ${cacheCreation}` : ''}`);
+      }
       break;
     case 'error':
       log(
