@@ -2,9 +2,9 @@
 
 **Current Environment:** Local Machine
 
-**Last Updated:** 2026-06-01 (Layer 3: 2026-06-01)
+**Last Updated:** 2026-06-01 (Layer 4: 2026-06-01)
 
-**Layer:** Layer 3 (Claude LLM Integration, System Prompt, Context & Token Logging)
+**Layer:** Layer 4 (Web Scraping Tool Integration, Autonomous Fetching, Error Handling)
 
 ---
 
@@ -786,14 +786,222 @@ grep "\[TOKEN-USAGE\]" logs/nanoclaw.log | \
 
 ---
 
-## 11. Next Steps (Layer 4+)
+## 10. Layer 4: Web Scraping Tool Integration
+
+**Completed:** 2026-06-01
+
+### Overview
+
+Layer 4 equips the Haiku agent with autonomous web scraping capability via a new MCP tool: `fetch_and_scrape_webpage`. When a user provides a URL or asks to research a topic online, the agent **autonomously invokes the tool without waiting for approval**, fetches the page, extracts plain text, and formats the output per the Layer 3 system prompt (BLUF, Insights, Operational Impact).
+
+### Architecture
+
+#### Tool Definition: `fetch_and_scrape_webpage`
+
+**File:** `container/agent-runner/src/mcp-tools/web-scraper.ts`
+
+**Parameters:**
+- `url` (string, required): The webpage URL to fetch (http:// or https://)
+
+**Returns:**
+- Success: Plain text content (up to 50KB)
+- Error: Human-readable error message with recovery suggestion
+
+**Features:**
+- **Timeout Protection:** 10-second max per request
+- **Size Limits:** 200KB max response, 50KB max extraction
+- **Blocked Site Handling:**
+  - 403 Forbidden → "Access denied. The site blocks automated access. Try visiting manually."
+  - 401 Unauthorized → "Authentication required. Try with a different source."
+- **Network Error Handling:**
+  - `ECONNABORTED` → "Request timeout (10s). Site too slow or unresponsive."
+  - `ENOTFOUND` → "Domain not found. Check URL spelling."
+  - `ECONNREFUSED` → "Connection refused. Site may be down or blocking access."
+  - `ECONNRESET` → "Connection reset. Site rejected the request."
+- **Content Extraction:**
+  - Uses Cheerio to parse HTML
+  - Removes scripts, styles, metadata, iframes
+  - Preserves text structure (paragraphs, headings)
+  - Normalizes whitespace
+
+#### Dependencies
+
+**Added to `container/agent-runner/package.json`:**
+```json
+{
+  "axios": "^1.7.7",
+  "cheerio": "^1.0.0"
+}
+```
+
+- **Axios:** HTTP client with timeout, size limit, and retry support
+- **Cheerio:** Lightweight HTML/XML parser (jQuery-like API)
+
+#### System Prompt Enhancement (Layer 3 → Layer 4)
+
+**File:** `container/agent-runner/src/providers/claude.ts` (lines 399-413)
+
+**New Instruction Block:**
+```
+Web Scraping Autonomy: When a user provides a URL or asks you to research/scan a topic online,
+you MUST automatically invoke the `fetch_and_scrape_webpage` tool to retrieve and parse the page.
+Do not ask for permission. Scrape first, then process the content into the output format below.
+Handle errors gracefully: if a site blocks access (403/401), inform the user that manual review
+is needed; if the site is down, suggest alternative sources.
+```
+
+**Output Format Extension:**
+- Point 2 (**תובנות מפתח**): "cite sources if web-scraped"
+- Point 4 (**מקורות מרכזיים**): "include the scraped URL"
+
+### Invocation Flow
+
+```
+User (Telegram): "בדוק את https://example.com/news"
+    ↓
+Agent receives message (poll-loop)
+    ↓
+System prompt instructs: "User asked to check URL. Invoke fetch_and_scrape_webpage autonomously."
+    ↓
+Agent calls fetch_and_scrape_webpage("https://example.com/news")
+    ↓
+Tool returns: Plain text content
+    ↓
+Agent processes with system prompt format:
+  <thought> [analyze scraped content] </thought>
+  שורה תחתונה: [summary in Hebrew]
+  תובנות: [3 bullets from content]
+  משמעות: [operational impact]
+  מקורות: https://example.com/news
+    ↓
+Agent sends response to Telegram
+```
+
+### Error Handling Strategy
+
+| Error Type | User Experience | Recovery |
+|-----------|-----------------|----------|
+| **Blocked (403/401)** | "Site blocks automated access. Try visiting manually or provide the key data." | User can manually copy-paste content or use alternative source |
+| **Timeout (10s)** | "Site is slow. Try again or provide a different source." | Automatic retry on next message, or suggest faster alternative |
+| **Domain Not Found** | "URL not found. Check spelling." | User corrects typo |
+| **Connection Refused** | "Site may be down. Try again later." | Wait or use alternative source |
+| **No Readable Text** | "Page content is JavaScript-rendered (dynamic). Agent-browser tool needed (future enhancement)." | Direct user to manual review or next layer (JS rendering) |
+| **Invalid URL** | "Invalid URL format. Must start with http:// or https://" | User provides corrected URL |
+
+### Limitations & Future Enhancements
+
+**Current Limitations:**
+- ✗ Cannot render JavaScript (Cheerio is static parser only)
+- ✗ Cannot bypass bot-detection (User-Agent spoofing only)
+- ✗ Cannot handle authentication (no cookie/header persistence)
+- ✗ Cannot scroll/interact (fetch is one-shot)
+
+**Future (Layer 5+):**
+- [ ] **Dynamic Rendering:** Integrate `agent-browser` for JS-heavy sites
+- [ ] **Cookie/Auth Support:** Persist sessions via secret management
+- [ ] **Smart Retry:** Exponential backoff for rate-limited endpoints
+- [ ] **Content Type Detection:** Fallback for PDF, JSON, XML documents
+- [ ] **Selective Scraping:** CSS selector or XPath extraction hints
+- [ ] **Rate Limiting:** Per-domain request queuing to avoid blocks
+
+### Token Cost Impact
+
+**Scraping Overhead (per request):**
+- Tool invocation + extraction: ~50 prompt tokens
+- Retrieved content (typical 10KB): ~2,500 input tokens (after processing)
+- Agent response formatting: ~100 completion tokens
+
+**Total per web-enhanced query:** ~2,650 tokens vs. ~600 tokens baseline
+**Cost:** +$0.002 per request (vs. $0.0009 base)
+
+**Cost Optimization:**
+- Cache frequent URLs via `RESPONSE_CACHE` (future)
+- Batch multiple URLs per session (session continuation)
+- Use `extract_text_only` mode (no HTML parsing) for simple cases
+
+### Testing & Validation
+
+**Manual Test Scenarios:**
+
+```bash
+# Test 1: Normal HTML page
+User: "בדוק את https://example.com"
+Expected: Scraped text, formatted response
+
+# Test 2: Blocked site
+User: "בדוק את https://site-with-captcha.example.com"
+Expected: "Error: Access denied (HTTP 403). Try manually."
+
+# Test 3: Timeout
+User: "בדוק את https://very-slow-site.example.com"
+Expected: "Error: Request timeout (10s). Try again or use different source."
+
+# Test 4: Invalid URL
+User: "בדוק את not-a-url"
+Expected: "Error: Invalid URL. Must start with http:// or https://"
+
+# Test 5: JavaScript-rendered
+User: "בדוק את https://spa-app.example.com"
+Expected: "Error: No readable text. Page is JavaScript-rendered."
+```
+
+### Configuration
+
+No additional `.env` variables needed — tool uses Bun/Node HTTP stack.
+
+**Optional (future):**
+```
+SCRAPER_USER_AGENT=...      # Custom User-Agent string
+SCRAPER_TIMEOUT_MS=10000    # Request timeout (default: 10000)
+SCRAPER_MAX_SIZE_KB=200     # Max response size (default: 200)
+SCRAPER_EXTRACT_MAX_KB=50   # Max extracted text (default: 50)
+```
+
+### Observability
+
+**New Log Entries:**
+
+```
+[web-scraper] Fetching: https://example.com
+[web-scraper] Successfully scraped 15234 chars from https://example.com
+[web-scraper] Scrape error for https://site.com: ECONNABORTED
+```
+
+**In Poll Loop:**
+```
+[poll-loop] Tool invocation: fetch_and_scrape_webpage
+[poll-loop] Tool result: [15234 chars of scraped text]
+```
+
+### Files Modified
+
+1. **`container/agent-runner/package.json`**
+   - Added: `axios@^1.7.7`, `cheerio@^1.0.0`
+
+2. **`container/agent-runner/src/mcp-tools/web-scraper.ts`** (NEW)
+   - Tool definition, handler, error cases, text extraction
+
+3. **`container/agent-runner/src/mcp-tools/index.ts`**
+   - Import: `import './web-scraper.js'`
+
+4. **`container/agent-runner/src/providers/claude.ts`**
+   - Updated system prompt (lines 399-413)
+   - Added Layer 4 section marker
+
+5. **`SYSTEM_ARCHITECTURE.md`**
+   - Layer 4 documentation (this section)
+   - Updated Next Steps
+
+---
+
+## 11. Next Steps (Layer 5+)
 
 - [x] **Layer 1:** Foundation, Docker, OneCLI
 - [x] **Layer 2:** Telegram Integration, Echo Bot, Observability
 - [x] **Layer 3:** Claude LLM Integration, System Prompt, Context & Token Logging
-- [ ] **Layer 4:** Multi-agent orchestration
-- [ ] **Layer 5:** Integration hooks (WhatsApp, Gmail, Slack, etc.)
-- [ ] **Layer 6:** Advanced security (vault, RBAC, audit)
+- [x] **Layer 4:** Web Scraping Tool Integration, Autonomous Fetching, Error Handling
+- [ ] **Layer 5:** Dynamic rendering (JavaScript, SPAs) + Additional integrations (WhatsApp, Gmail, Slack)
+- [ ] **Layer 6:** Multi-agent orchestration & advanced security (vault, RBAC, audit)
 - [ ] **Layer 7:** Deployment (K8s, cloud platforms)
 
 ---
